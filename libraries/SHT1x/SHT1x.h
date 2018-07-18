@@ -24,7 +24,7 @@ class SHT1x
     SHT1x(int dataPin, int clockPin);
     float readHumidity();
     float readTemperatureC();
-    float readTemperatureF();
+    //float readTemperatureF(); //removed for optimized storage
   private:
     int _dataPin;
     int _clockPin;
