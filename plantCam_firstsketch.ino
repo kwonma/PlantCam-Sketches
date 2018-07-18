@@ -105,4 +105,3 @@ void logData(String data) {
 #endif
   }
 }
-
