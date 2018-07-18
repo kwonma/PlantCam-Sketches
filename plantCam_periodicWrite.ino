@@ -10,16 +10,16 @@
 */
 // add libraries
 //#include "pgmspace.h"
-#include <Arduino.h>
-#include <Wire.h>
-#include "Adafruit_SHT31.h"
+//#include <Arduino.h>
+//#include <Wire.h>
+//#include "Adafruit_SHT31.h"
 #include <SPI.h>
 #include <SD.h>
 #include <SHT1x.h>
 
 // eliminates extra steps in code
 #define SLEEP 0  //0 - always powered on; 1 - RTC mode
-#define DEBUG 0  //0 - in field test mode; 1 - prints to screen
+#define DEBUG 1  //0 - in field test mode; 1 - prints to screen
 
 // project settings
 const int WakePeriod = 5; // minutes
@@ -84,10 +84,6 @@ void loop() {
   //--- soil SHT temp/humidity ---
   so_temp = sht1x.readTemperatureC();
   so_hum = sht1x.readHumidity();
-
-  // can do some checking here
-  if (isnan(am_temp) || isnan(am_hum)) {
-  }
 
   // create combined string and store string in volatile memory
   getWriteString(timestamp, measuredvbat, am_temp, am_hum, so_temp, so_hum);
