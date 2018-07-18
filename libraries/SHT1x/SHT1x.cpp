@@ -49,7 +49,6 @@ float SHT1x::readTemperatureC()
 
 /**
  * Reads the current temperature in degrees Fahrenheit
- */
 float SHT1x::readTemperatureF()
 {
   int _val;                 // Raw value returned from sensor
@@ -67,6 +66,7 @@ float SHT1x::readTemperatureF()
 
   return (_temperature);
 }
+ */
 
 /**
  * Reads current temperature-corrected relative humidity
