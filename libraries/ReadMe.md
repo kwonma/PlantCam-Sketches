@@ -9,7 +9,7 @@ Unused functions have been removed from some libraries - those are included here
       #include <LowPower.h>
       #include <Adafruit_TCS34725.h>
 
-LIGHT SENSOR:
+LIGHT SENSOR: \\
 https://github.com/adafruit/Adafruit_TCS34725
 
 SOIL TEMP HUMIDITY PROBE: 
