@@ -1,3 +1,2 @@
-#list of libraries needed to run PlantCam sketches
-also see main sketch for list
-some libraries have the unused functions removed - those are included here
+A list of libraries needed to run PlantCam sketches (also see main sketch).
+Unused functions have been removed from some libraries - those are included here
