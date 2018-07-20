@@ -1,12 +1,11 @@
-/* 	Author: Marissa Kwon
-	Date: 7/16/2018
-	Description: This sketch handles sensor and dendrometer datalogging and timing
-
+/*   Author: Marissa Kwon
+  Date: 7/16/2018
+  Description: This sketch handles sensor and dendrometer datalogging and timing
   links:
   Saving program memory with FLASH storage https://www.arduino.cc/reference/en/language/variables/utilities/progmem/
   SHT-31 temp/humidity sensor https://www.adafruit.com/products/2857
   SHT1x (soil probe) temp/humidity sensor https://www.adafruit.com/product/1298
-
+  TCS345 light sensor https://learn.adafruit.com/adafruit-color-sensors/overview
 */
 // add libraries
 //#include "pgmspace.h"
@@ -19,14 +18,15 @@
 #include <Wire.h>
 #include <RTClibExtended.h>
 #include <LowPower.h>
+#include <Adafruit_TCS34725.h>
 
 // eliminates extra steps in code
 #define SLEEP 0  //0 - always powered on; 1 - RTC mode
 #define DEBUG 1  //0 - in field test mode; 1 - prints to screen
-
+#define AUTORANGE 0 //0 - set range for TCS345 light sensor; 1 - enables autorange and compensation code
 // project settings
 const int WakePeriod = 5; // minutes
-const int WritePeriod = 12; // every 12 wake/sleep cycles (once on the hour)
+const int WritePeriod = 3; // every 12 wake/sleep cycles (once on the hour)
 
 // pin constants
 #define SDCheck 10 // attached to CD on SD card logger
@@ -38,6 +38,63 @@ const int WritePeriod = 12; // every 12 wake/sleep cycles (once on the hour)
 #define SoilPow 6 // digital pin powering moisture probe * could replacing with hardware transistor & batt source?
 #define SoilPin1 A0 // analog pin reading input for probe to attach more probes add more analog pins
 
+// from TCS345 sketch notes
+// some magic numbers for this device from the DN40 application
+#define TCS34725_R_Coef 0.136
+#define TCS34725_G_Coef 1.000
+#define TCS34725_B_Coef -0.444
+#define TCS34725_GA 1.0
+#define TCS34725_DF 310.0
+#define TCS34725_CT_Coef 3810.0
+#define TCS34725_CT_Offset 1391.0
+
+#ifdef AUTORANGE == 1
+// Autorange class for TCS34725
+class tcs34725 {
+  public:
+    tcs34725(void);
+
+    boolean begin(void);
+    void getData(void);
+
+    boolean isAvailable, isSaturated;
+    uint16_t againx, atime, atime_ms;
+    uint16_t r, g, b, c;
+    uint16_t ir;
+    uint16_t r_comp, g_comp, b_comp, c_comp;
+    uint16_t saturation, saturation75;
+    float cratio, cpl, ct, lux, maxlux;
+
+  private:
+    struct tcs_agc {
+      tcs34725Gain_t ag;
+      tcs34725IntegrationTime_t at;
+      uint16_t mincnt;
+      uint16_t maxcnt;
+    };
+    static const tcs_agc agc_lst[];
+    uint16_t agc_cur;
+
+    void setGainTime(void);
+    Adafruit_TCS34725 tcs;
+};
+//
+// Gain/time combinations to use and the min/max limits for hysteresis
+// that avoid saturation. They should be in order from dim to bright.
+//
+// Also set the first min count and the last max count to 0 to indicate
+// the start and end of the list.
+//
+const tcs34725::tcs_agc tcs34725::agc_lst[] = {
+  { TCS34725_GAIN_60X, TCS34725_INTEGRATIONTIME_700MS,     0, 20000 },
+  { TCS34725_GAIN_60X, TCS34725_INTEGRATIONTIME_154MS,  4990, 63000 },
+  { TCS34725_GAIN_16X, TCS34725_INTEGRATIONTIME_154MS, 16790, 63000 },
+  { TCS34725_GAIN_4X,  TCS34725_INTEGRATIONTIME_154MS, 15740, 63000 },
+  { TCS34725_GAIN_1X,  TCS34725_INTEGRATIONTIME_154MS, 15740, 0 }
+};
+tcs34725::tcs34725() : agc_cur(0), isAvailable(0), isSaturated(0) {
+}
+#endif
 
 // global variables
 String data_array[WritePeriod + 1];
@@ -46,10 +103,16 @@ int count;
 // instances of sensors
 //Adafruit_SHT31 sht31 = Adafruit_SHT31();
 SHT1x sht1x(SDA, CLK);
-
-#if SLEEP == 1
 RTC_DS3231 RTC;      //we are using the DS3231 RTC
+
+#ifdef AUTORANGE == 1  //incorporates the above class and helper functions below
+tcs34725 rgb_sensor;
 #endif
+
+#ifdef AUTORANGE == 0
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_700MS, TCS34725_GAIN_1X);
+#endif
+
 
 void setup() {
   data_array[WritePeriod] = "/0";
@@ -73,10 +136,6 @@ void setup() {
 
   pinMode(SoilPow, OUTPUT); //D6 set as output for moisture probe(s)
   digitalWrite(SoilPow, LOW); //probes begin in OFF state
-
-#if DEBUG == 1
-  Serial.println(F("card initialized."));
-#endif
 
 #if SLEEP == 1
   pinMode(WakePin, INPUT);
@@ -104,12 +163,24 @@ void setup() {
   RTC.alarmInterrupt(1, true);
 #endif
 
+#ifdef AUTORANGE == 1
+  while (!rgb_sensor.begin()) {}
+#endif
+
+#ifdef AUTORANGE == 0
+  while (!tcs.begin()) {}
+#endif
+
+#if DEBUG == 1
+  Serial.println(F("card initialized."));
+  Serial.println(F("light sensor found."));
+#endif
 }
 
 // ====== measure data, save it, and write to SD card ======
 void loop() {
   float measuredvbat, am_temp = 0, am_hum = 0, so_temp = 0, so_hum = 0;
-  int so_probe = 0;
+  uint16_t so_probe = 0, r, g, b, c, colorTemp, lux, IR = 0, CPL = 0, max_lux = 0, sat = 0;
   String timestamp = "--:--:--", writeString = "";
 
   // get data
@@ -129,25 +200,134 @@ void loop() {
   //--- soil moisture probe(s) ---
   so_probe = readSoil();  // need to add calibration to get proper values
 
-  // --- light intensity (LUX) ---
+  // --- RGB light/lux compensated ---
+#ifdef AUTORANGE == 1
+  rgb_sensor.getData();
+  r = rgb_sensor.r_comp;
+  g = rgb_sensor.g_comp;
+  b = rgb_sensor.b_comp;
+  CPL = rgb_sensor.cpl;
+  max_lux = rgb_sensor.maxlux;
+  IR = rgb_sensor.ir;
+  colorTemp = rgb_sensor.ct;
+  sat = rgb_sensor.saturation;
+  lux = rgb_sensor.lux;
+#endif
 
-  // --- RGB light/lux fiter ---
+  // --- RGB light/lux raw data from sensor---
+#ifdef AUTORANGE == 0
+  tcs.getRawData(&r, &g, &b, &c);
+  colorTemp = tcs.calculateColorTemperature(r, g, b);
+  lux = tcs.calculateLux(r, g, b);
+#endif
 
   // --- dendrometer ??? ---
 
-
   // create combined string and store string in volatile memory
-  getWriteString(timestamp, measuredvbat, am_temp, am_hum, so_temp, so_hum, so_probe);
+  String vb = String(measuredvbat, 1); //1 decimal place
+  //am_tm = String(am_temp, 4); //4 decimal places
+  //am_rh = String(am_hum, 4); //4 decimal places
+  String so_tm = String(so_temp, 4); //4 decimal places
+  String so_rh = String(so_hum, 4); //4 decimal places
+  String so_pr = String(so_probe);
+  String r_str = String(r);
+  String g_str = String(g);
+  String b_str = String(b);
+  String c_str = String(c);
+  String ct_str = String(colorTemp);
+  String lux_str = String(lux);
+  String sat_str = String(sat);
+  String ml_str = String(max_lux);
+  String CPL_str = String(CPL);
+  String IR_str = String(IR);
+ 
+  //combine strings for storage
+  String out = timestamp + "," + vb + "," + so_tm + "," + so_rh + "," + so_pr + "," + r_str + "," + g_str + "," + b_str + "," + c_str + "," + ct_str + "," + lux_str + "," + sat_str + "," + IR_str + "," + CPL_str + "," + ml_str  ;
 
+  // save data and log to SD card when necessary
+  if (saveWriteString(out)) {
+    count = 0;
+  }
+  else {
+    count++;
+  }
 #if DEBUG == 1
   Serial.println(count);
   //Serial.println(writeString);
+  delay(500);
 #endif
 }
 
 // =============================================================
 // Additional Functions
 // =============================================================
+
+#ifdef AUTORANGE == 1
+// --- initialize the TCS345 light sensor ---
+boolean tcs34725::begin(void) {
+  tcs = Adafruit_TCS34725(agc_lst[agc_cur].at, agc_lst[agc_cur].ag);
+  if ((isAvailable = tcs.begin()))
+    setGainTime();
+  return (isAvailable);
+}
+
+// --- Set the gain and integration time ---
+void tcs34725::setGainTime(void) {
+  tcs.setGain(agc_lst[agc_cur].ag);
+  tcs.setIntegrationTime(agc_lst[agc_cur].at);
+  atime = int(agc_lst[agc_cur].at);
+  atime_ms = ((256 - atime) * 2.4);
+  switch (agc_lst[agc_cur].ag) {
+    case TCS34725_GAIN_1X:
+      againx = 1;
+      break;
+    case TCS34725_GAIN_4X:
+      againx = 4;
+      break;
+    case TCS34725_GAIN_16X:
+      againx = 16;
+      break;
+    case TCS34725_GAIN_60X:
+      againx = 60;
+      break;
+  }
+}
+
+// --- Retrieve data from the sensor and do the calculations ---
+void tcs34725::getData(void) {
+  // read the sensor and autorange if necessary
+  tcs.getRawData(&r, &g, &b, &c);
+  while (1) {
+    if (agc_lst[agc_cur].maxcnt && c > agc_lst[agc_cur].maxcnt)
+      agc_cur++;
+    else if (agc_lst[agc_cur].mincnt && c < agc_lst[agc_cur].mincnt)
+      agc_cur--;
+    else break;
+
+    setGainTime();
+    delay((256 - atime) * 2.4 * 2); // shock absorber
+    tcs.getRawData(&r, &g, &b, &c);
+    break;
+  }
+
+  // DN40 calculations
+  ir = (r + g + b > c) ? (r + g + b - c) / 2 : 0;
+  r_comp = r - ir;
+  g_comp = g - ir;
+  b_comp = b - ir;
+  c_comp = c - ir;
+  cratio = float(ir) / float(c);
+
+  saturation = ((256 - atime) > 63) ? 65535 : 1024 * (256 - atime);
+  saturation75 = (atime_ms < 150) ? (saturation - saturation / 4) : saturation;
+  isSaturated = (atime_ms < 150 && c > saturation75) ? 1 : 0;
+  cpl = (atime_ms * againx) / (TCS34725_GA * TCS34725_DF);
+  maxlux = 65535 / (cpl * 3);
+
+  lux = (TCS34725_R_Coef * float(r_comp) + TCS34725_G_Coef * float(g_comp) + TCS34725_B_Coef * float(b_comp)) / cpl;
+  ct = TCS34725_CT_Coef * float(b_comp) / float(r_comp) + TCS34725_CT_Offset;
+}
+#endif
 
 // ===== get Moisture Content =====
 int readSoil()
@@ -203,28 +383,4 @@ bool saveWriteString(String ws) {
     return 1;
   }
 }
-
-// ====== String function to concatenate all data ======
-void getWriteString(String stamp, float vbat, float am_temp, float am_hum, float so_temp, float so_hum, int so_probe) {
-  String out, vb, am_tm, am_rh, so_tm, so_rh, so_pr;
-  // convert float to string
-  vb = String(vbat, 1); //1 decimal place
-  //am_tm = String(am_temp, 4); //4 decimal places
-  //am_rh = String(am_hum, 4); //4 decimal places
-  so_tm = String(so_temp, 4); //4 decimal places
-  so_rh = String(so_hum, 4); //4 decimal places
-  so_pr = String(so_probe);
-  out = stamp + "," + vb + "," + so_tm + "," + so_rh + "," + so_pr;
-
-  // save data and log to SD card when necessary
-  if (saveWriteString(out)) {
-    count = 0;
-  }
-  else {
-    count++;
-  }
-  delay(500);
-}
-
-
 
