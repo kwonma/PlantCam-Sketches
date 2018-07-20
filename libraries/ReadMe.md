@@ -15,8 +15,6 @@ https://github.com/adafruit/Adafruit_TCS34725
 SOIL TEMP HUMIDITY PROBE: 
 https://github.com/practicalarduino/SHT1x
 
-RTC:
-
 RTClibExtended 
 https://github.com/FabioCuomo/FabioCuomo-DS3231/blob/master/RTClibExtended.cpp
 
