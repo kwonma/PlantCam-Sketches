@@ -5,10 +5,15 @@
     saturated (100%) and completely dry (0%)
 
 */
-
+const int sensors = 4 // # of soil moisture sensors
+    
 int val = 0; //value for storing moisture value
-int soilPin = A0;//Declare a variable for the soil moisture sensor
-int soilPower = 6;//Variable for Soil moisture Power
+int soilPin1 = A0; // input pin for 1st soil moisture sensor
+int soilPin2 = A1; // input pin for 2nd  soil moisture sensor
+int soilPin1 = A2; // input pin for 3rd soil moisture sensor
+int soilPin2 = A3; // input pin for 4th  soil moisture sensor
+
+int soilPower = 6;// control pin for soil moisture base
 
 //Rather than powering the sensor through the 3.3V or 5V pins,
 //we'll use a digital pin to power the sensor. This will
@@ -23,17 +28,25 @@ void setup()
 }
 
 void loop()
-{
-  float moisture = 0;
-  int raw_moisture = 0;
+{ 
+  //float soil1 = 0, soil2 = 0, soil3 = 0, soil4 = 0;
+  int raw_soil1 = 0, raw_soil2 = 0, raw_soil3 = 0, raw_soil4 = 0;
 
   //ADC conversion
-  raw_moisture = readSoil();
-
+  digitalWrite(soilPower, HIGH);//turn D7 "On"
+  delay(10);//wait 10 milliseconds
+  raw_soil1 = analogRead(soilPin1);  //note: unsure if sensor readings not happening in parallel but one after the other
+  raw_soil2 = analogRead(soilPin2);
+  raw_soil3 = analogRead(soilPin3);
+  raw_soil4 = analogRead(soilPin4);
+  digitalWrite(soilPower, LOW);//turn D7 "Off"
+    
   Serial.print("Soil Moisture raw = ");
-  //get soil moisture value from the function below and print it
-  Serial.println(raw_moisture); // gives int based on resolution and source voltage
-
+  //get soil moisture value from the function below and print it - 10 bit ADC on Feather
+  Serial.println(raw_soil1); // gives int based on resolution and source voltage
+  Serial.println(raw_soil2); // gives int based on resolution and source voltage
+  Serial.println(raw_soil3); // gives int based on resolution and source voltage
+  Serial.println(raw_soil4); // gives int based on resolution and source voltage
   //add calibration factor calculations here
   
   //This 1 second timefrme is used so you can test the sensor and see it change in real-time.
@@ -41,15 +54,4 @@ void loop()
   delay(1000);//take a reading every second
 }
 
-
-//This is a function used to get the soil moisture content
-int readSoil()
-{
-
-  digitalWrite(soilPower, HIGH);//turn D7 "On"
-  delay(10);//wait 10 milliseconds
-  val = analogRead(soilPin);//Read the SIG value form sensor
-  digitalWrite(soilPower, LOW);//turn D7 "Off"
-  return val;//send current moisture value
-}
 
