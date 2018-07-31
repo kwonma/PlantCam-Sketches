@@ -13,7 +13,7 @@ int soilPin2 = A1; // input pin for 2nd  soil moisture sensor
 int soilPin1 = A2; // input pin for 3rd soil moisture sensor
 int soilPin2 = A3; // input pin for 4th  soil moisture sensor
 
-int soilPower = 6;// control pin for soil moisture base
+int soilPower = 6;// control pin for soil moisture
 
 //Rather than powering the sensor through the 3.3V or 5V pins,
 //we'll use a digital pin to power the sensor. This will
@@ -34,13 +34,21 @@ void loop()
 
   //ADC conversion
   digitalWrite(soilPower, HIGH);//turn D7 "On"
-  delay(10);//wait 10 milliseconds
-  raw_soil1 = analogRead(soilPin1);  //note: unsure if sensor readings not happening in parallel but one after the other
+  delay(20);//wait 10 milliseconds
+  raw_soil1 = analogRead(soilPin1);  //note: sensor readings happen for the same time one after the other
   raw_soil2 = analogRead(soilPin2);
   raw_soil3 = analogRead(soilPin3);
   raw_soil4 = analogRead(soilPin4);
   digitalWrite(soilPower, LOW);//turn D7 "Off"
+   
+  // if using transistor connecting to battery line 
+  int vbat = analogRead(A9); // gets analog value 
+  vbat =* 2;   // voltage internally divided by 2
+  vbat =/ 3.3; // reference voltage
+  vbat =/ 1024 // 10 bit conversion to actual number 
     
+  // vbat = our referece voltage for current raw soil measurements
+      
   Serial.print("Soil Moisture raw = ");
   //get soil moisture value from the function below and print it - 10 bit ADC on Feather
   Serial.println(raw_soil1); // gives int based on resolution and source voltage
