@@ -1,1 +1,1 @@
-# PlantCam-Sketches
+# PlantCam repository navigation
