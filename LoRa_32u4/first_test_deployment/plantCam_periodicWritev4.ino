@@ -4,8 +4,8 @@
   links:
   Saving program memory with FLASH storage https://www.arduino.cc/reference/en/language/variables/utilities/progmem/
   SHT-31 temp/humidity sensor https://www.adafruit.com/products/2857
+  SHT1x (soil probe) temp/humidity sensor https://www.adafruit.com/product/1298
   TCS345 light sensor https://learn.adafruit.com/adafruit-color-sensors/overview
-  MAX31865 temperature amplifier w/ PT100 https://learn.adafruit.com/adafruit-max31865-rtd-pt100-amplifier/arduino-code
 */
 // add libraries
 //#include "pgmspace.h"
@@ -18,25 +18,35 @@
 #include <Adafruit_TCS34725.h>
 #include <Adafruit_MAX31865.h>
 
-// eliminates extra steps in code
-#define SLEEP 0  //0 - always powered on; 1 - RTC mode
+// ---- EDIT HARDWARE/SETTINGS HERE ----
+
+// set to eliminate extra steps in code
+#define SLEEP 1  //0 - always powered on; 1 - RTC mode
 #define DEBUG 1  //0 - in field test mode; 1 - prints to screen
 #define AUTORANGE 1 //0 - set range for TCS345 light sensor; 1 - enables autorange and compensation code
 
 // project settings
-const int WakePeriod = 1; // minutes
-const int WritePeriod = 1; // every 12 wake/sleep cycles (once on the hour)
-volatile int MIN = 0;
-volatile int HR = 0;
-byte AlarmFlag = 0;
+const int WakePeriod = 1; // minutes between reads
+const int WritePeriod = 1; // sets # of wake/sleep cycles to go through before saving data to SD
+volatile int MIN = 0; // (don't edit) placeholder for current MIN
+volatile int HR = 0; // (don't edit) placeholder for current HR
+byte AlarmFlag = 0; // (don't edit) checkpoint; should only be on when device is awake and collecting data
 
-// pin constants
+// pin constants - change these if using a different device (don't edit if hardware is set)
 #define SDCheck 12 // attached to CD on SD card logger
 #define WakePin 11 // attached to SQW on RTC
 #define ChipSelSD 10 // attached to CS on SPI SD logger
 #define ChipSelRTD 13 // attached to SPI temperature sensor 
 #define VbatPin A9 // reading battery voltage
 
+// defined sensors - true =  in use and plugged in; false = not implemented
+#define SHT true //temp/hum sensor
+#define MAX true //temp sensor
+#define TCS true //light sensor
+
+// ---- END EDIT HARDWARE/SETTINGS ----
+
+#if TCS == 1
 // from TCS345 sketch notes
 // some magic numbers for this device from the DN40 application
 #define TCS34725_R_Coef 0.136
@@ -46,12 +56,6 @@ byte AlarmFlag = 0;
 #define TCS34725_DF 310.0
 #define TCS34725_CT_Coef 3810.0
 #define TCS34725_CT_Offset 1391.0
-
-// The value of the Rref resistor. Use 430.0 for PT100 and 4300.0 for PT1000
-#define RREF      430.0
-// The 'nominal' 0-degrees-C resistance of the sensor
-// 100.0 for PT100, 1000.0 for PT1000
-#define RNOMINAL  100.0
 
 #if AUTORANGE == 1
 // Autorange class for TCS34725
@@ -101,26 +105,39 @@ const tcs34725::tcs_agc tcs34725::agc_lst[] = {
 };
 tcs34725::tcs34725() : agc_cur(0), isAvailable(0), isSaturated(0) {
 }
+
+//incorporates the above class and helper functions at the end of the sketch
+tcs34725 rgb_sensor;
 #endif
+
+#if AUTORANGE == 0 // skips some code
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_700MS, TCS34725_GAIN_1X);
+#endif
+
+#endif
+
+#if MAX == 1
+// The value of the Rref resistor. Use 430.0 for PT100 and 4300.0 for PT1000
+#define RREF      430.0
+// The 'nominal' 0-degrees-C resistance of the sensor
+// 100.0 for PT100, 1000.0 for PT1000
+#define RNOMINAL  100.0
+#endif
+
+// instances of sensors
+#if SHT == 1
+Adafruit_SHT31 sht31 = Adafruit_SHT31();
+#endif
+
+#if MAX == 1
+Adafruit_MAX31865 maxrtd = Adafruit_MAX31865(ChipSelRTD);
+#endif
+
+RTC_DS3231 RTC;  //we are using the DS3231 RTC
 
 // global variables
 String data_array[WritePeriod + 1];
 int count;
-
-// instances of sensors
-Adafruit_SHT31 sht31 = Adafruit_SHT31();
-Adafruit_MAX31865 maxrtd = Adafruit_MAX31865(ChipSelRTD);
-
-RTC_DS3231 RTC;      //we are using the DS3231 RTC
-
-#if AUTORANGE == 1  //incorporates the above class and helper functions below
-tcs34725 rgb_sensor;
-#endif
-
-#if AUTORANGE == 0
-Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_700MS, TCS34725_GAIN_1X);
-#endif
-
 
 void setup() {
   data_array[WritePeriod] = "/0";
@@ -130,15 +147,27 @@ void setup() {
   delay(10);
 #endif
 
-
-  Serial.println(F("SHT31 test"));
+#if SHT == 1
+  Serial.println(F("test"));
   if (! sht31.begin(0x44)) {   // Set to 0x45 for alternate i2c addr
     Serial.println(F("Couldn't find SHT31"));
     while (1) delay(1);
   }
+#endif
 
+#if MAX == 1
   maxrtd.begin(MAX31865_3WIRE);  // set to 2WIRE or 4WIRE as necessary
+#endif
 
+#if TCS == 1
+#if AUTORANGE == 1
+  while (!rgb_sensor.begin()) {}
+#endif
+
+#if AUTORANGE == 0
+  while (!tcs.begin()) {}
+#endif
+#endif
 
   if (!SD.begin(ChipSelSD)) { // don't do anything more:
     Serial.println(F("SD card error"));
@@ -171,17 +200,19 @@ void setup() {
   AlarmFlag = 1;
 #endif
 
-#if AUTORANGE == 1
-  while (!rgb_sensor.begin()) {}
-#endif
-
-#if AUTORANGE == 0
-  while (!tcs.begin()) {}
-#endif
-
 #if DEBUG == 1
   Serial.println(F("card initialized."));
+#if TCS == 1
   Serial.println(F("light sensor found."));
+#endif
+
+#if SHT == 1
+  Serial.println(F("SHT31D temp/humidity sensor found"));
+#endif
+
+#if MAX == 1
+  Serial.println(F("PT100 temp probe found."));
+#endif
 #endif
 }
 
@@ -189,23 +220,26 @@ void setup() {
 void loop() {
   float measuredvbat, am_temp = 0, am_hum = 0, max_temp = 0;
   uint16_t r, g, b, c, colorTemp, lux, IR = 0, CPL = 0, max_lux = 0, sat = 0;
-  String timestamp = "--:--:--";
+  String timestamp = "--:--:--", out;
 #if SLEEP == 1
   // enable interrupt for PCINT7...
   pciSetup(11);
   // Power down SD??? Soil moisture (use transistor?),  TSL module.
 
+#if TCS == 1
 #if AUTORANGE == 1
   rgb_sensor.disable();
+#endif
 #endif
 
   // Wake up when wake up pin is low.
   LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
   // <----  Wait in sleep here until pin interrupt wakes sensor up
   // Power on devices
-
+#if TCS == 1
 #if AUTORANGE == 1
   rgb_sensor.enable();
+#endif
 #endif
 
   PCICR = 0x00;         // Disable PCINT interrupt
@@ -233,13 +267,18 @@ void loop() {
     measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
     measuredvbat /= 1024; // convert to voltage
 
+#if SHT == 1
     //--- ambient SHT temp/humidity ---
     am_temp = sht31.readTemperature();  // degrees C
     am_hum = sht31.readHumidity(); // relative as a percent
+#endif
 
+#if MAX == 1
     //--- RTD temperature ---
     max_temp = maxrtd.temperature(RNOMINAL, RREF);
+#endif
 
+#if TCS == 1
     // --- RGB light/lux compensated ---
 #if AUTORANGE == 1
     rgb_sensor.getData();
@@ -261,7 +300,7 @@ void loop() {
     colorTemp = tcs.calculateColorTemperature(r, g, b);
     lux = tcs.calculateLux(r, g, b);
 #endif
-
+#endif
     // --- dendrometer ??? ---
 
     // create combined string and store string in volatile memory
@@ -305,7 +344,7 @@ void loop() {
 // =============================================================
 // Additional Functions
 // =============================================================
-
+#if TCS == 1
 #if AUTORANGE == 1
 // --- initialize the TCS345 light sensor ---
 boolean tcs34725::begin(void) {
@@ -381,7 +420,7 @@ void tcs34725::getData(void) {
   ct = TCS34725_CT_Coef * float(b_comp) / float(r_comp) + TCS34725_CT_Offset;
 }
 #endif
-
+#endif
 
 // ====== function that logs data ======
 void logData(String * data_arr) {
