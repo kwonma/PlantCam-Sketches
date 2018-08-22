@@ -22,7 +22,7 @@
 
 // set to eliminate extra steps in code
 #define SLEEP 1  //0 - always powered on; 1 - RTC mode
-#define DEBUG 1  //0 - in field test mode; 1 - prints to screen
+#define DEBUG 0  //0 - in field test mode; 1 - prints to screen
 #define AUTORANGE 1 //0 - set range for TCS345 light sensor; 1 - enables autorange and compensation code
 
 // project settings
@@ -286,10 +286,10 @@ void loop() {
     g = rgb_sensor.g_comp;
     b = rgb_sensor.b_comp;
     c = rgb_sensor.c_comp;
-    CPL = rgb_sensor.cpl;
+    CPL = rgb_sensor.cpl;  // stands for circular polarized luminescence
     max_lux = rgb_sensor.maxlux;
     IR = rgb_sensor.ir;
-    colorTemp = rgb_sensor.ct;
+    colorTemp = rgb_sensor.ct;  // color temperature
     sat = rgb_sensor.saturation;
     lux = rgb_sensor.lux;
 #endif
